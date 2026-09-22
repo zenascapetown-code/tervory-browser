@@ -7,9 +7,11 @@ const PORT = Number(process.env.TERVORY_BROWSER_PORT || 8796);
 const TOKEN = (process.env.TERVORY_BROWSER_TOKEN || "").trim();
 const CHROME = process.env.CHROME_PATH || "/usr/bin/chromium";
 const SHOT_DIR = process.env.TERVORY_BROWSER_SHOTS || "/tmp/tervory-browser";
+const IDLE_MS = Number(process.env.TERVORY_BROWSER_IDLE_MS || 10 * 60 * 1000);
 const WORKERS = new Set(["tisan", "base", "tiger", "radix", "market-lab"]);
 
 const contexts = new Map();
+const lastUsed = new Map();
 let browser;
 
 async function chrome() {
@@ -27,11 +29,16 @@ function workerOf(req) {
   return WORKERS.has(raw) ? raw : "";
 }
 
+function touch(worker) {
+  lastUsed.set(worker, Date.now());
+}
+
 async function contextFor(worker) {
   const b = await chrome();
   if (!contexts.has(worker)) {
     contexts.set(worker, await b.createBrowserContext());
   }
+  touch(worker);
   return contexts.get(worker);
 }
 
@@ -40,6 +47,25 @@ async function pageFor(worker) {
   const pages = await ctx.pages();
   return pages[0] || ctx.newPage();
 }
+
+async function reapIdle() {
+  const now = Date.now();
+  for (const [worker, at] of lastUsed) {
+    if (now - at < IDLE_MS) continue;
+    const ctx = contexts.get(worker);
+    if (ctx) {
+      try {
+        await ctx.close();
+      } catch {}
+    }
+    contexts.delete(worker);
+    lastUsed.delete(worker);
+  }
+}
+
+setInterval(() => {
+  reapIdle().catch(() => {});
+}, 30 * 1000);
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -100,6 +126,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/tab") {
       const ctx = contexts.get(worker);
       if (!ctx) return send(res, 200, { ok: true, worker, url: null, title: null });
+      touch(worker);
       const pages = await ctx.pages();
       const page = pages[0];
       if (!page) return send(res, 200, { ok: true, worker, url: null, title: null });
@@ -133,6 +160,14 @@ const server = http.createServer(async (req, res) => {
       await page.type(sel, text);
       return send(res, 200, { ok: true, worker, url: page.url() });
     }
+    if (req.method === "POST" && url.pathname === "/wait") {
+      const body = await readBody(req);
+      const sel = String(body.selector || "").trim();
+      if (!sel) return send(res, 400, { ok: false, error: "selector" });
+      const page = await pageFor(worker);
+      await page.waitForSelector(sel, { timeout: 15000 });
+      return send(res, 200, { ok: true, worker, url: page.url() });
+    }
     if (req.method === "POST" && url.pathname === "/shot") {
       fs.mkdirSync(SHOT_DIR, { recursive: true });
       const file = path.join(SHOT_DIR, `${worker}.png`);
@@ -146,6 +181,7 @@ const server = http.createServer(async (req, res) => {
         await ctx.close();
         contexts.delete(worker);
       }
+      lastUsed.delete(worker);
       return send(res, 200, { ok: true, worker, reset: true });
     }
     send(res, 404, { ok: false, error: "not found" });
