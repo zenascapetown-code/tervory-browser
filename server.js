@@ -1,28 +1,33 @@
 import http from "node:http";
+import puppeteer from "puppeteer-core";
 
 const PORT = Number(process.env.TERVORY_BROWSER_PORT || 8796);
 const TOKEN = (process.env.TERVORY_BROWSER_TOKEN || "").trim();
-const IDLE_MS = Number(process.env.TERVORY_BROWSER_IDLE_MS || 15 * 60 * 1000);
+const CHROME = process.env.CHROME_PATH || "/usr/bin/chromium";
 
-const sessions = new Map();
+const contexts = new Map();
+let browser;
+
+async function chrome() {
+  if (browser && browser.connected) return browser;
+  browser = await puppeteer.launch({
+    executablePath: CHROME,
+    headless: true,
+    args: ["--no-sandbox", "--disable-dev-shm-usage"],
+  });
+  return browser;
+}
 
 function workerOf(req) {
   return String(req.headers["x-tervory-worker"] || "anon").trim() || "anon";
 }
 
-function sweep() {
-  const now = Date.now();
-  for (const [worker, s] of sessions) {
-    if (now - (s.at || 0) > IDLE_MS) sessions.delete(worker);
+async function contextFor(worker) {
+  const b = await chrome();
+  if (!contexts.has(worker)) {
+    contexts.set(worker, await b.createBrowserContext());
   }
-}
-
-function sessionFor(worker) {
-  sweep();
-  if (!sessions.has(worker)) {
-    sessions.set(worker, { worker, url: null, title: null, at: Date.now() });
-  }
-  return sessions.get(worker);
+  return contexts.get(worker);
 }
 
 function readBody(req) {
@@ -59,18 +64,14 @@ function allow(req) {
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || "/", `http://127.0.0.1:${PORT}`);
-  sweep();
-  if (req.method === "GET" && (url.pathname === "/health" || url.pathname === "/active")) {
-    if (url.pathname === "/active") {
-      res.writeHead(204);
-      return res.end();
-    }
+  if (req.method === "GET" && url.pathname === "/health") {
     return send(res, 200, {
       ok: true,
       name: "tervory-browser",
       owned: true,
       many: true,
-      workers: [...sessions.keys()],
+      chrome: Boolean(browser && browser.connected),
+      workers: [...contexts.keys()],
     });
   }
   if (!allow(req)) return send(res, 401, { ok: false, error: "token" });
@@ -79,27 +80,35 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/open") {
       const body = await readBody(req);
       const target = String(body.url || "").trim();
-      if (!target) return send(res, 400, { ok: false, error: "url" });
-      const s = sessionFor(worker);
-      s.url = target;
-      s.title = body.title || target;
-      s.at = Date.now();
-      return send(res, 200, { ok: true, worker, url: s.url, title: s.title });
+      if (!/^https?:\/\//i.test(target)) return send(res, 400, { ok: false, error: "url" });
+      const ctx = await contextFor(worker);
+      const pages = await ctx.pages();
+      const page = pages[0] || (await ctx.newPage());
+      await page.goto(target, { waitUntil: "domcontentloaded", timeout: 30000 });
+      return send(res, 200, { ok: true, worker, url: page.url(), title: await page.title() });
     }
     if (req.method === "GET" && url.pathname === "/tab") {
-      const s = sessions.get(worker) || { worker, url: null, title: null };
-      return send(res, 200, { ok: true, worker, url: s.url, title: s.title });
+      const ctx = contexts.get(worker);
+      if (!ctx) return send(res, 200, { ok: true, worker, url: null, title: null });
+      const pages = await ctx.pages();
+      const page = pages[0];
+      if (!page) return send(res, 200, { ok: true, worker, url: null, title: null });
+      return send(res, 200, { ok: true, worker, url: page.url(), title: await page.title() });
     }
     if (req.method === "POST" && url.pathname === "/reset") {
-      sessions.delete(worker);
+      const ctx = contexts.get(worker);
+      if (ctx) {
+        await ctx.close();
+        contexts.delete(worker);
+      }
       return send(res, 200, { ok: true, worker, reset: true });
     }
     send(res, 404, { ok: false, error: "not found" });
   } catch (err) {
-    send(res, 400, { ok: false, error: String(err && err.message ? err.message : err) });
+    send(res, 500, { ok: false, error: String(err && err.message ? err.message : err) });
   }
 });
 
 server.listen(PORT, "0.0.0.0", () => {
-  process.stdout.write(`tervory-browser many-session ${PORT}\n`);
+  process.stdout.write(`tervory-browser chromium ${PORT}\n`);
 });

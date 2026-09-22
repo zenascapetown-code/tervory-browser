@@ -1,14 +1,6 @@
 # Tervory Browser
 
-Our own browser for Tervory AI.
+Our own Chromium on the box. Many workers at once. One session each.
+Not Browserbase. Not Browserless. Not a sixth brain.
 
-Not Browserbase. Not a sixth worker.
-Many workers can use it at the same time.
-Each worker has its own session. They never share a tab, skills, or memory.
-
-On the box the container is `tervory-browser` on `127.0.0.1:8796`.
-
-- `GET /health`
-- `POST /open` `{ "url": "https://..." }` plus header `X-Tervory-Worker: tisan`
-- `GET /tab`
-- `POST /reset` closes that worker only
+Tab dies when that worker calls reset. Pictures later go to R2. Notes stay on the worker.
