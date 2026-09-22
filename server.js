@@ -105,6 +105,17 @@ const server = http.createServer(async (req, res) => {
       if (!page) return send(res, 200, { ok: true, worker, url: null, title: null });
       return send(res, 200, { ok: true, worker, url: page.url(), title: await page.title() });
     }
+    if (req.method === "GET" && url.pathname === "/text") {
+      const page = await pageFor(worker);
+      const text = await page.evaluate(() => (document.body ? document.body.innerText : ""));
+      return send(res, 200, {
+        ok: true,
+        worker,
+        url: page.url(),
+        title: await page.title(),
+        text: String(text || "").slice(0, 20000),
+      });
+    }
     if (req.method === "POST" && url.pathname === "/click") {
       const body = await readBody(req);
       const sel = String(body.selector || "").trim();
