@@ -1,0 +1,37 @@
+name: tervory-browser
+
+services:
+  tervory-browser:
+    image: ghcr.io/browserless/chromium:latest
+    container_name: tervory-browser
+    restart: unless-stopped
+    env_file:
+      - ${TERVORY_BROWSER_ENV_FILE:-/srv/tervory/secrets/tervory-browser.env}
+    environment:
+      CONCURRENT: ${TERVORY_BROWSER_CONCURRENT:-5}
+      QUEUED: ${TERVORY_BROWSER_QUEUED:-5}
+      TIMEOUT: ${TERVORY_BROWSER_TIMEOUT_MS:-300000}
+      HEALTH: "true"
+      MAX_CPU_PERCENT: ${TERVORY_BROWSER_MAX_CPU_PERCENT:-90}
+      MAX_MEMORY_PERCENT: ${TERVORY_BROWSER_MAX_MEMORY_PERCENT:-90}
+      ENABLE_DEBUGGER: "false"
+    ports:
+      - "${TERVORY_BROWSER_BIND:-127.0.0.1}:${TERVORY_BROWSER_PORT:-8796}:3000"
+    shm_size: "2g"
+    volumes:
+      - ${TERVORY_ROOT:-/srv/tervory}/runtime/browser:/usr/src/app/workspace
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fsS http://127.0.0.1:3000/active >/dev/null || curl -fsS -H \"Authorization: Bearer $$TOKEN\" http://127.0.0.1:3000/pressure >/dev/null",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
