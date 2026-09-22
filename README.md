@@ -1,19 +1,14 @@
 # Tervory Browser
 
-Owned browser for Tervory AI. Not Browserbase. Not a sixth brain.
+Our own browser for Tervory AI.
 
-The five workers never share skills or memory. They borrow this plug for a job.
+Not Browserbase. Not a sixth worker.
+Many workers can use it at the same time.
+Each worker has its own session. They never share a tab, skills, or memory.
 
-## On the box
+On the box the container is `tervory-browser` on `127.0.0.1:8796`.
 
-- Container name: `tervory-browser`
-- Listen: `http://127.0.0.1:8796`
-- Token lives in `/srv/tervory/secrets/browser_token`. Not in this repo.
-
-## Door
-
-- `GET /health` — no token
-- `POST /open` `{ "url": "https://..." }` — token
-- `GET /tab` — token
-
-This first cut records the tab. Chromium drive is the next cut in this same repo.
+- `GET /health`
+- `POST /open` `{ "url": "https://..." }` plus header `X-Tervory-Worker: tisan`
+- `GET /tab`
+- `POST /reset` closes that worker only
