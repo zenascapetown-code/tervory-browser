@@ -2,6 +2,7 @@ import http from "node:http";
 
 const PORT = Number(process.env.TERVORY_BROWSER_PORT || 8796);
 const TOKEN = (process.env.TERVORY_BROWSER_TOKEN || "").trim();
+const IDLE_MS = Number(process.env.TERVORY_BROWSER_IDLE_MS || 15 * 60 * 1000);
 
 const sessions = new Map();
 
@@ -9,7 +10,15 @@ function workerOf(req) {
   return String(req.headers["x-tervory-worker"] || "anon").trim() || "anon";
 }
 
+function sweep() {
+  const now = Date.now();
+  for (const [worker, s] of sessions) {
+    if (now - (s.at || 0) > IDLE_MS) sessions.delete(worker);
+  }
+}
+
 function sessionFor(worker) {
+  sweep();
   if (!sessions.has(worker)) {
     sessions.set(worker, { worker, url: null, title: null, at: Date.now() });
   }
@@ -50,7 +59,12 @@ function allow(req) {
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || "/", `http://127.0.0.1:${PORT}`);
-  if (req.method === "GET" && url.pathname === "/health") {
+  sweep();
+  if (req.method === "GET" && (url.pathname === "/health" || url.pathname === "/active")) {
+    if (url.pathname === "/active") {
+      res.writeHead(204);
+      return res.end();
+    }
     return send(res, 200, {
       ok: true,
       name: "tervory-browser",
