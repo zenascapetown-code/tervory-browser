@@ -1,12 +1,19 @@
 # Tervory Browser
 
-Our own browser for Tervory AI.
+Owned browser for Tervory AI. Not Browserbase. Not a sixth brain.
 
-Not Browserbase. Not a sixth worker. A plug the five workers can use for a job.
-Tisan, Base, Tiger, Radix, and Market Lab never share skills or memory through this.
+The five workers never share skills or memory. They borrow this plug for a job.
 
-On the box the container is already named `tervory-browser`.
-It listens on `127.0.0.1:8796`.
-The CLI says `browser on` when the host secrets exist.
+## On the box
 
-This repo is the product home. The old compose files sat inside Radix. They move here.
+- Container name: `tervory-browser`
+- Listen: `http://127.0.0.1:8796`
+- Token lives in `/srv/tervory/secrets/browser_token`. Not in this repo.
+
+## Door
+
+- `GET /health` — no token
+- `POST /open` `{ "url": "https://..." }` — token
+- `GET /tab` — token
+
+This first cut records the tab. Chromium drive is the next cut in this same repo.
